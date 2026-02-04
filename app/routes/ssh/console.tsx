@@ -1,3 +1,7 @@
+import { access, constants } from "node:fs/promises";
+import { join } from "node:path";
+import { cwd } from "node:process";
+
 import { faker } from "@faker-js/faker";
 import { eq } from "drizzle-orm";
 import { Loader2 } from "lucide-react";
@@ -17,15 +21,22 @@ export const shouldRevalidate: ShouldRevalidateFunction = () => {
   return false;
 };
 
-export async function loader({ request, context }: Route.LoaderArgs) {
-  const origin = new URL(request.url).origin;
-  const assets = [`${__PREFIX__}/wasm_exec.js`, `${__PREFIX__}/hp_ssh.wasm`];
-  const missing: string[] = [];
-
-  for (const file of assets) {
-    const res = await fetch(`${origin}${file}`, { method: "HEAD" });
-    if (!res.ok) missing.push(file);
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path, constants.F_OK);
+    return true;
+  } catch {
+    return false;
   }
+}
+
+export async function loader({ request, context }: Route.LoaderArgs) {
+  const clientDir = join(cwd(), "build/client");
+  const assets = ["wasm_exec.js", "hp_ssh.wasm"];
+  const checks = await Promise.all(
+    assets.map(async (file) => ({ file, exists: await fileExists(join(clientDir, file)) })),
+  );
+  const missing = checks.filter((c) => !c.exists).map((c) => c.file);
 
   if (missing.length > 0) {
     throw data("WebSSH is not configured in this build.", 405);
